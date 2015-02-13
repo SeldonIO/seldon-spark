@@ -63,11 +63,18 @@ class Ctr(private val sc : SparkContext,config : CtrConfig) {
       import org.json4s._
       import org.json4s.native.JsonMethods._
       implicit val formats = DefaultFormats
-      
-      val json = parse(parts(2))
-      val consumer = (json \ "consumer").extract[String]
-      val click = (json \ "click").extract[String]
-      Seq(Impression(consumer,date.getYear(),date.getMonthOfYear(),date.getDayOfMonth(),click))
+      try
+      {
+        val json = parse(parts(2))
+        val consumer = (json \ "consumer").extract[String]
+        val click = (json \ "click").extract[String]
+        Seq(Impression(consumer,date.getYear(),date.getMonthOfYear(),date.getDayOfMonth(),click))
+      }
+      catch
+      {
+        case ex: MappingException => {println("bad json => "+line)}
+        None
+      }
       }
       else
         None

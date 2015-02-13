@@ -63,7 +63,7 @@ class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfi
 
   def updateDb(client: String, records: Iterable[(String, (Int, Int))], conn_str: String) {
     classOf[com.mysql.jdbc.Driver]
-
+    val dbclient:String = client 
     // Setup the connection
     val conn = DriverManager.getConnection(conn_str)
     try {
@@ -72,7 +72,7 @@ class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfi
 
     var query: StringBuilder = new StringBuilder
 
-    query = query.append("insert into "+client+".items_recent_popularity (item_id, score, decay_id) values ")
+    query = query.append("insert into "+dbclient+".items_recent_popularity (item_id, score, decay_id) values ")
     query =
       ((records.tail foldLeft (query.append("("+ records.head._2._1 + "," + records.head._2._2+",1)"))) {(acc, e) => acc.append(", ").append("("+ e._2._1 + "," + e._2._2+",1)")})
 
@@ -90,14 +90,11 @@ class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfi
   def run()
   {
     var lines:DStream[String] = null
-    var ssc:StreamingContext = null
-    var connectionString:String = null
+    val connectionString:String = config.jdbc
     if (config.testing){
-      lines = ssc.socketTextStream("localhost", 7777)
-      connectionString = config.jdbc
+      lines = sc.socketTextStream("localhost", 7777)
     } else 
     {
-      connectionString = config.jdbc
       val topicMap = config.kafka_topics.split(",").map((_,config.kafka_numThreadPartitions)).toMap
 
       lines = KafkaUtils.createStream(sc, config.zkQuorum, config.kafkaGroupId, topicMap).map(_._2)
@@ -144,7 +141,7 @@ object MostPopularJob
     head("InfluxDbImpressionStatsJob", "1.x")
     opt[Unit]('l', "local") action { (_, c) => c.copy(local = true) } text("debug mode - use local Master")
     opt[Unit]("testing") action { (_, c) => c.copy(testing = true) } text("testing mode - connect to port 7777")    
-    opt[String]("zk-quorum") required() valueName("zookeeper nodes") action { (x, c) => c.copy(zkQuorum = x) } text("zookeeper quorum nodes for kafka discovery")            
+    opt[String]("zk-quorum") valueName("zookeeper nodes") action { (x, c) => c.copy(zkQuorum = x) } text("zookeeper quorum nodes for kafka discovery")            
     opt[String]("kafka-group-id") valueName("kafka group id") action { (x, c) => c.copy(kafkaGroupId = x) } text("kafka group id")                
     opt[String]("kafka-topics") valueName("kafka topics") action { (x, c) => c.copy(kafka_topics = x) } text("kafka topics to subscribe to")                    
     opt[String]("clients") required() valueName("clients") action { (x, c) => c.copy(clients = x) } text("clients to process")                    

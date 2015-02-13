@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.seldon</groupId>
   <artifactId>seldon-spark</artifactId>
-  <version>1.0</version>
+  <version>1.0.1</version>
   <name>seldon-spark</name>
   <properties>
         <scala.version>2.10</scala.version>
