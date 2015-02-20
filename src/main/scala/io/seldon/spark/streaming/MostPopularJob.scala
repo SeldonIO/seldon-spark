@@ -21,7 +21,7 @@
 */
 package io.seldon.spark.streaming
 
-import java.sql.{ResultSet, DriverManager}
+
 
 import kafka.producer._
 
@@ -61,31 +61,8 @@ case class MostPopularConfig(
 class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfig) {
 
 
-  def updateDb(client: String, records: Iterable[(String, (Int, Int))], conn_str: String) {
-    classOf[com.mysql.jdbc.Driver]
-    val dbclient:String = client 
-    // Setup the connection
-    val conn = DriverManager.getConnection(conn_str)
-    try {
-    // Configure to be Read Only
-    val statement = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
-
-    var query: StringBuilder = new StringBuilder
-
-    query = query.append("insert into "+dbclient+".items_recent_popularity (item_id, score, decay_id) values ")
-    query =
-      ((records.tail foldLeft (query.append("("+ records.head._2._1 + "," + records.head._2._2+",1)"))) {(acc, e) => acc.append(", ").append("("+ e._2._1 + "," + e._2._2+",1)")})
-
-    query = query.append(" on duplicate key update score=VALUES(score)+exp(-(greatest(CURRENT_TIMESTAMP()-last_update,0)/82400))*score")
-    println(query)
-    // Execute Query
-    statement.execute(query.toString())
-
-  }
-    finally {
-    conn.close
-  }
-  }
+  
+ 
 
   def run()
   {
@@ -115,7 +92,8 @@ class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfi
       .reduceByKey(_+_)
     val countsRemapped = counts.map(x=> (x._1._1,(x._1._2, x._2))).repartition(2)
     countsRemapped.foreachRDD(x => {
-      x.groupBy(_._1).foreach(x=>updateDb(x._1, x._2, connectionString))
+      
+      x.groupBy(_._1).foreach(x=>MostPopularJob.updateDb(x._1, x._2, connectionString))
     })
 
 
@@ -131,6 +109,33 @@ class MostPopularJob(private val sc : StreamingContext,config : MostPopularConfi
 
 object MostPopularJob
 {
+   def updateDb(client: String, records: Iterable[(String, (Int, Int))], conn_str: String) {
+import java.sql.{ResultSet, DriverManager}
+    classOf[com.mysql.jdbc.Driver]
+    val dbclient:String = client 
+    // Setup the connection
+    val conn = DriverManager.getConnection(conn_str)
+    try {
+    // Configure to be Read Only
+    val statement = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
+
+    var query: StringBuilder = new StringBuilder
+
+    query = query.append("insert into "+dbclient+".items_recent_popularity (item_id, score, decay_id) values ")
+    query =
+      ((records.tail foldLeft (query.append("("+ records.head._2._1 + "," + records.head._2._2+",1)"))) {(acc, e) => acc.append(", ").append("("+ e._2._1 + "," + e._2._2+",1)")})
+
+    query = query.append(" on duplicate key update score=VALUES(score)+exp(-(greatest(CURRENT_TIMESTAMP()-last_update,0)/82400))*score")
+    println(query)
+    // Execute Query
+    statement.execute(query.toString())
+
+  }
+    finally {
+    conn.close
+  }
+  }
+  
   def main(args: Array[String]) 
   {
 
@@ -153,12 +158,12 @@ object MostPopularJob
     parser.parse(args, MostPopularConfig()) map { config =>
     val conf = new SparkConf()
       .setAppName("InfluxDbImpressionsStatsJob")
-    classOf[com.mysql.jdbc.Driver]      
+    
     if (config.local)
       conf.setMaster("local[2]")
     
     val sc = new StreamingContext(conf, Seconds(config.mini_batch_secs)) 
-
+    
     try
     {
       println(config)
