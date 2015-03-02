@@ -94,8 +94,11 @@ object MfModelCreation {
     val sc = new SparkContext(conf)
     val hadoopConf = sc.hadoopConfiguration
     hadoopConf.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-    hadoopConf.set("fs.s3n.awsAccessKeyId", args(10));
-    hadoopConf.set("fs.s3n.awsSecretAccessKey", args(11));
+    if (args.size > 10)
+    {
+      hadoopConf.set("fs.s3n.awsAccessKeyId", args(10));
+      hadoopConf.set("fs.s3n.awsSecretAccessKey", args(11));
+    }
     val client = args(0)
     val date:Int = args(1).toInt
     val daysOfActions = args(2).toInt
