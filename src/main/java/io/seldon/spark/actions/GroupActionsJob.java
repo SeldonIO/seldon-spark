@@ -71,10 +71,10 @@ public class GroupActionsJob {
         @Parameter(names = "--debug-use-local-master")
         private Boolean debug_use_local_master = false;
 
-        @Parameter(names = "--aws-access-key-id", required = true)
+        @Parameter(names = "--aws-access-key-id", required = false)
         private String aws_access_key_id;
 
-        @Parameter(names = "--aws-secret-access-key", required = true)
+        @Parameter(names = "--aws-secret-access-key", required = false)
         private String aws_secret_access_key;
 
         @Parameter(names = "--gzip-output", required = false)
@@ -124,8 +124,11 @@ public class GroupActionsJob {
         { // setup aws access
             Configuration hadoopConf = jsc.hadoopConfiguration();
             hadoopConf.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem");
-            hadoopConf.set("fs.s3n.awsAccessKeyId", cmdLineArgs.aws_access_key_id);
-            hadoopConf.set("fs.s3n.awsSecretAccessKey", cmdLineArgs.aws_secret_access_key);
+            if (cmdLineArgs.aws_access_key_id != null && !"".equals(cmdLineArgs.aws_access_key_id))
+            {
+            	hadoopConf.set("fs.s3n.awsAccessKeyId", cmdLineArgs.aws_access_key_id);
+            	hadoopConf.set("fs.s3n.awsSecretAccessKey", cmdLineArgs.aws_secret_access_key);
+            }
         }
 
         // String output_path_dir = "./out/" + input_date_string + "-" + UUID.randomUUID();
