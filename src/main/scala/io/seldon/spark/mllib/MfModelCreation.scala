@@ -81,6 +81,7 @@ object MfModelCreation {
 
   def main(args: Array[String]) {
 
+    
     val conf = new SparkConf()
       .setAppName("SeldonALS")
 
@@ -180,7 +181,7 @@ object MfModelCreation {
     for (rank <- ranks; lambda <- lambdas; numIter <- numIters; alpha <- alphas) {
       val timeFirst = System.currentTimeMillis()
       val model: MatrixFactorizationModel = ALS.trainImplicit(ratings, rank, numIter, lambda, alpha)
-      outputModelToFile(model, toOutputResource(outputFilesLocation,outputDataSourceMode), outputDataSourceMode, client,date, args(10), args(11))
+      outputModelToFile(model, toOutputResource(outputFilesLocation,outputDataSourceMode), outputDataSourceMode, client,date)
       if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut()){
         val ensurePath = new EnsurePath("/"+client+"/mf")
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
@@ -225,8 +226,8 @@ object MfModelCreation {
     }
   }
 
-  def outputModelToS3File(model: MatrixFactorizationModel, outputFilesLocation: String, yesterdayUnix: Long, awsKey: String, awsSecret: String) = {
-    val service: S3Service = new RestS3Service(new AWSCredentials(awsKey, awsSecret))
+  def outputModelToS3File(model: MatrixFactorizationModel, outputFilesLocation: String, yesterdayUnix: Long) = {
+    val service: S3Service = new RestS3Service(new AWSCredentials(System.getenv("AWS_ACCESS_KEY_ID"), System.getenv("AWS_SECRET_ACCESS_KEY")))
     val bucketString = outputFilesLocation.split("/")(0)
     val bucket = service.getBucket(bucketString)
     val s3Folder = outputFilesLocation.replace(bucketString+"/","")
@@ -252,10 +253,10 @@ object MfModelCreation {
     service.putObject(bucket, objProd)
   }
 
-  def outputModelToFile(model: MatrixFactorizationModel,outputFilesLocation:String, outputType:DataSourceMode, client:String, yesterdayUnix: Long, awsKey: String, awsSecret: String) {
+  def outputModelToFile(model: MatrixFactorizationModel,outputFilesLocation:String, outputType:DataSourceMode, client:String, yesterdayUnix: Long) {
     outputType match {
       case LOCAL => outputModelToLocalFile(model,outputFilesLocation,  yesterdayUnix)
-      case S3 => outputModelToS3File(model, outputFilesLocation, yesterdayUnix, awsKey, awsSecret)
+      case S3 => outputModelToS3File(model, outputFilesLocation, yesterdayUnix)
     }
 
 
