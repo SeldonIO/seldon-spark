@@ -41,18 +41,29 @@ import org.apache.spark.{HashPartitioner, SparkContext, SparkConf}
 import scala.util.Random._
 
 
-
-/**
- * @author firemanphil
- *         Date: 14/10/2014
- *         Time: 15:16
- *
- */
-object MfModelCreation {
+case class MfConfig(
+    client : String = "",
+    inputPath : String = "/seldon-models",
+    outputPath : String = "/seldon-models",
+    startDay : Int = 1,
+    days : Int = 1,    
+    awsKey : String = "",
+    awsSecret : String = "",
+    local : Boolean = false,    
+    zkHosts : String = "",
+    activate : Boolean = false,
+    
+    rank : Int = 30,
+    lambda : Double = 0.1,
+    alpha : Double = 1,
+    iterations : Int = 2
+ )
+    
+class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
 
   object DataSourceMode extends Enumeration {
     def fromString(s: String): DataSourceMode = {
-      if(s.startsWith("local://"))
+      if(s.startsWith("/"))
         return LOCAL
       if(s.startsWith("s3n://"))
         return S3
@@ -78,50 +89,31 @@ object MfModelCreation {
       case S3 => return location.replace("s3n://", "")
     }
   }
-
-  def main(args: Array[String]) {
-
-    
-    val conf = new SparkConf()
-      .setAppName("SeldonALS")
-
-    println(conf.getAll.deep)
-    if (args.size < 10){
-      println("Couldn't start job -- wrong number of args.")
-      println("Example usage:")
-      System.exit(1)
-    }
-
-    val sc = new SparkContext(conf)
-    val hadoopConf = sc.hadoopConfiguration
-    hadoopConf.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-    if (args.size > 10)
-    {
-      hadoopConf.set("fs.s3n.awsAccessKeyId", args(10));
-      hadoopConf.set("fs.s3n.awsSecretAccessKey", args(11));
-    }
-    val client = args(0)
-    val date:Int = args(1).toInt
-    val daysOfActions = args(2).toInt
-    val rank = args(3).toInt
-    val lambda = args(4).toDouble
-    val alpha = args(5).toDouble
-    val iterations = args(6).toInt
-    val zkServer = args(7)
-    val inputFilesLocation = args(8)
+  
+  def run() 
+  {
+    val client = config.client
+    val date:Int = config.startDay
+    val daysOfActions = config.days
+    val rank = config.rank
+    val lambda = config.lambda
+    val alpha = config.alpha
+    val iterations = config.iterations
+    val zkServer = config.zkHosts
+    val inputFilesLocation = config.inputPath + "/" + config.client + "/actions/"
     val inputDataSourceMode = DataSourceMode.fromString(inputFilesLocation)
     if (inputDataSourceMode == NONE) {
       println("input file location must start with local:// or s3n://")
       sys.exit(1)
     }
-    val outputFilesLocation = args(9)
+    val outputFilesLocation = config.outputPath + "/" + config.client +"/matrix-factorization/"
     val outputDataSourceMode = DataSourceMode.fromString(outputFilesLocation)
     if (outputDataSourceMode == NONE) {
       println("output file location must start with local:// or s3n://")
       sys.exit(1)
     }
 
-    val curator = new ZkCuratorHandler(zkServer)
+
     val startTime = System.currentTimeMillis()
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
@@ -166,38 +158,35 @@ object MfModelCreation {
 
     println("before filtering, actions count " + actions.count() + " after filtering " + ratings.count())
 
-    val ranks = List(rank)
-    val lambdas = List(lambda)
-    val numIters = List(iterations)
-    val alphas = List(alpha)
-    var bestModel: Option[MatrixFactorizationModel] = None
-    var bestMap = Double.MinValue
-    var bestRank = 0
-    var bestLambda = -1.0
-    var bestNumIter = -1
-    var bestAlpha = 0
-    println("Running tests...")
-    println("rank,lambda,iters,alpha,score,time")
-    for (rank <- ranks; lambda <- lambdas; numIter <- numIters; alpha <- alphas) {
-      val timeFirst = System.currentTimeMillis()
-      val model: MatrixFactorizationModel = ALS.trainImplicit(ratings, rank, numIter, lambda, alpha)
-      outputModelToFile(model, toOutputResource(outputFilesLocation,outputDataSourceMode), outputDataSourceMode, client,date)
+   
+    
+   
+    val timeFirst = System.currentTimeMillis()
+    val model: MatrixFactorizationModel = ALS.trainImplicit(ratings, rank, iterations, lambda, alpha)
+    outputModelToFile(model, toOutputResource(outputFilesLocation,outputDataSourceMode), outputDataSourceMode, client,date)
+
+    if (config.activate)
+    {
+      val curator = new ZkCuratorHandler(zkServer)
       if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut()){
         val ensurePath = new EnsurePath("/"+client+"/mf")
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
         curator.getCurator.setData().forPath("/"+client+"/mf",(outputFilesLocation+date).getBytes())
       }
-      println(List(rank,lambda,numIter,alpha,0,System.currentTimeMillis() - timeFirst).mkString(","))
-      model.userFeatures.unpersist()
-      model.productFeatures.unpersist()
-      val rdds = sc.getRDDStorageInfo
-      if(sc.getPersistentRDDs !=null) {
+    }
+    
+    println(List(rank,lambda,iterations,alpha,0,System.currentTimeMillis() - timeFirst).mkString(","))
+
+    model.userFeatures.unpersist()
+    model.productFeatures.unpersist()
+    val rdds = sc.getRDDStorageInfo
+    if(sc.getPersistentRDDs !=null) 
+    {
         for (rdd <- sc.getPersistentRDDs.values) {
           if (rdd.name != null && (rdd.name.startsWith("product") || rdd.name.startsWith("user"))) {
             rdd.unpersist(true);
           }
         }
-      }
     }
 
     sc.stop()
@@ -266,4 +255,111 @@ object MfModelCreation {
     val p = new java.io.PrintWriter(f)
     try { op(p) } finally { p.close() }
   }
+}
+
+/**
+ * @author firemanphil
+ *         Date: 14/10/2014
+ *         Time: 15:16
+ *
+ */
+object MfModelCreation {
+
+    def updateConf(config : MfConfig) =
+  {
+    var c = config.copy()
+    if (config.zkHosts.nonEmpty) 
+     {
+       val curator = new ZkCuratorHandler(config.zkHosts)
+       val path = "/"+config.client+"/offline/matrix-factorization"
+       if (curator.getCurator.checkExists().forPath(path) != null)
+       {
+         val bytes = curator.getCurator.getData().forPath(path)
+         val j = new String(bytes,"UTF-8")
+         println(j)
+         import org.json4s._
+         import org.json4s.native.JsonMethods._
+         implicit val formats = DefaultFormats
+         val json = parse(j)
+
+         val cZookeeper = json.extractOpt[MfConfig]
+         if (cZookeeper.isDefined)
+           cZookeeper.get
+         else
+           c
+       }
+       else
+         c
+     }
+     else
+       c
+  }
+  
+  
+  def main(args: Array[String]) 
+  {
+
+    Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
+    Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
+    
+    var c = new MfConfig()
+    val parser = new scopt.OptionParser[Unit]("MatrixFactorization") {
+    head("ClusterUsersByDimension", "1.x")
+        opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
+        opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
+        opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
+        opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
+        opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
+        opt[Unit]("activate") foreach { x => c = c.copy(activate = true) } text("activate the model in the Seldon Server")
+        
+        opt[Int]('u', "rank") foreach { x =>c = c.copy(rank = x) } text("the number of latent factors in the model")
+        opt[Double]('m', "lambda") foreach { x =>c = c.copy(lambda = x) } text("the regularization parameter in ALS to stop over-fittin")
+        opt[Double]('m', "alpha") foreach { x =>c = c.copy(alpha = x) } text("governs the baseline confidence in preference observations")        
+        opt[Int]('u', "iterations") foreach { x =>c = c.copy(iterations = x) } text("the number of iterations to run the modelling")
+    }
+    
+    
+    if (parser.parse(args)) // Parse to check and get zookeeper if there
+    {
+      c = updateConf(c) // update from zookeeper args
+      parser.parse(args) // overrride with args that were on command line
+      
+      val conf = new SparkConf().setAppName("MatrixFactorization")
+
+      if (c.local)
+        conf.setMaster("local")
+        .set("spark.executor.memory", "8g")
+
+      val sc = new SparkContext(conf)
+      try
+      {
+        sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+        if (c.awsKey.nonEmpty && c.awsSecret.nonEmpty)
+        {
+         sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", c.awsKey)
+         sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", c.awsSecret)
+        }
+        println(c)
+        val mf = new MfModelCreation(sc,c)
+        mf.run()
+      }
+      finally
+      {
+        println("Shutting down job")
+        sc.stop()
+      }
+   } 
+   else 
+   {
+      
+   }
+
+
+  }
+
+  
 }

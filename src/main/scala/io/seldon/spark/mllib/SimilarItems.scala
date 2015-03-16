@@ -37,22 +37,25 @@ import scala.util.Random
 import io.seldon.spark.zookeeper.ZkCuratorHandler
 
 case class SimilarItemsConfig(
-    local : Boolean = false,
     client : String = "",
     inputPath : String = "/seldon-models",
     outputPath : String = "/seldon-models",
+    startDay : Int = 1,
+    days : Int = 1,    
+    awsKey : String = "",
+    awsSecret : String = "",
+    local : Boolean = false,    
+    zkHosts : String = "",
+    
     itemType : Int = -1,
     limit : Int = 100,
     minItemsPerUser : Int = 0,
     minUsersPerItem : Int = 0,    
     maxUsersPerItem : Int = 2000000,    
     dimsumThreshold : Double = 0.1,
-    sample : Double = 1.0,
-    awsKey : String = "",
-    awsSecret : String = "",
-    startDay : Int = 1,
-    days : Int = 1,
-    zkHosts : String = "")
+    sample : Double = 1.0
+
+)
     
 class SimilarItems(private val sc : SparkContext,config : SimilarItemsConfig) {
 
@@ -223,16 +226,16 @@ object SimilarItems
     head("ClusterUsersByDimension", "1.x")
         opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
         opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
-        opt[String]('i', "input-path") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
-        opt[String]('o', "output-path") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
         opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
         opt[Int]('e', "itemType") foreach { x =>c = c.copy(itemType = x) } text("item type to limit foreachs to")
-        opt[Int]("start-day") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
         opt[Int]('u', "minUsersPerItem") foreach { x =>c = c.copy(minUsersPerItem = x) } text("min number of users to interact with an item")
         opt[Int]('m', "maxUsersPerItem") foreach { x =>c = c.copy(maxUsersPerItem = x) } text("max number of users to interact with an item")
         opt[Int]('p', "minItemsPerUser") foreach { x =>c = c.copy(minItemsPerUser = x) } text("min number of items a user needs to interact with")
         opt[Int]('l', "limit") foreach { x =>c = c.copy(limit = x) } text("keep top N similarities per item")
-        opt[Double]('d', "dimsum-threshold") foreach { x =>c = c.copy(dimsumThreshold = x) } text("min cosine similarity estimate for dimsum (soft limit)")
+        opt[Double]('d', "dimsumThreshold") foreach { x =>c = c.copy(dimsumThreshold = x) } text("min cosine similarity estimate for dimsum (soft limit)")
         opt[Double]('s', "sample") foreach { x =>c = c.copy(sample = x) } text("what percentage of the input data to use, values in range 0.0..1.0, defaults to 1.0 (use all the data)")        
         opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
         opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
