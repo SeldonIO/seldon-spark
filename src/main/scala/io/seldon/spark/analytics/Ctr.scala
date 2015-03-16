@@ -29,6 +29,8 @@ import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.joda.time.format.DateTimeFormatter
 import io.seldon.spark.SparkUtils
+import org.apache.spark.sql.SQLContext
+
 
 
 case class CtrConfig(
@@ -50,7 +52,7 @@ class Ctr(private val sc : SparkContext,config : CtrConfig) {
   
   
   def parseJson(lines : org.apache.spark.rdd.RDD[String]) = {
-    
+
     val rdd = lines.flatMap{line =>
       
       val formatter = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
@@ -105,12 +107,14 @@ class Ctr(private val sc : SparkContext,config : CtrConfig) {
   
   def process(lines : org.apache.spark.rdd.RDD[String],iHost : String, iUser : String, iPass : String) = 
   {
-    val sqlContext = new org.apache.spark.sql.SQLContext(sc)
-    // createSchemaRDD is used to implicitly convert an RDD to a SchemaRDD.
-    import sqlContext.createSchemaRDD
+    // sc is an existing SparkContext.
+    val sqlContext = new SQLContext(sc)
+    // this is used to implicitly convert an RDD to a DataFrame.
+    import sqlContext.implicits._
        
     val imps = parseJson(lines)
-    imps.registerTempTable("imps")
+    
+    imps.toDF().registerTempTable("imps")
     
     val ctr = sqlContext.sql("select t1.consumer,t1.year,t1.month,t1.day,impressions,clicks,(clicks/impressions)*100 from (select consumer,year,month,day,count(*) as impressions from imps where click='IMP' group by consumer,year,month,day) t1 join (select consumer,year,month,day,count(*) as clicks from imps where click='CTR' group by consumer,year,month,day) t2 on (t1.consumer=t2.consumer and t1.year=t2.year and t1.month=t2.month and t1.day=t2.day)")
     
@@ -135,7 +139,8 @@ class Ctr(private val sc : SparkContext,config : CtrConfig) {
     val ctr = process(lines,config.influxdb_host,config.influxdb_user,config.influxdb_pass)
 
     val outPath = config.outputPath + "/" + config.startDate+"_"+config.endDate
-    ctr.coalesce(1, false).saveAsTextFile(outPath)
+
+    ctr.rdd.coalesce(1, false).saveAsTextFile(outPath)
   }
 }
 
