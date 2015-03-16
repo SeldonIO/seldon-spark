@@ -34,8 +34,9 @@ import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.mllib.linalg.distributed.MatrixEntry
 import io.seldon.spark.SparkUtils
 import scala.util.Random
+import io.seldon.spark.zookeeper.ZkCuratorHandler
 
-case class Config(
+case class SimilarItemsConfig(
     local : Boolean = false,
     client : String = "",
     inputPath : String = "/seldon-models",
@@ -50,10 +51,12 @@ case class Config(
     awsKey : String = "",
     awsSecret : String = "",
     startDay : Int = 1,
-    days : Int = 1)
+    days : Int = 1,
+    zkHosts : String = "")
     
-class SimilarItems(private val sc : SparkContext,config : Config) {
+class SimilarItems(private val sc : SparkContext,config : SimilarItemsConfig) {
 
+  
   def parseJson(path : String,itemType : Int,sample : Double) = {
     
     val rdd = sc.textFile(path).flatMap{line =>
@@ -132,9 +135,11 @@ class SimilarItems(private val sc : SparkContext,config : Config) {
     r.columnSimilarities(dimsumThreshold).entries
   }
   
+  
+  
   def run()
   {
-      
+
     val glob = config.inputPath + "/" + config.client+"/actions/"+SparkUtils.getS3UnixGlob(config.startDay,config.days)+"/*"
     println("loading from "+glob)
     
@@ -176,65 +181,100 @@ class SimilarItems(private val sc : SparkContext,config : Config) {
 
 object SimilarItems
 {
+   def updateConf(config : SimilarItemsConfig) =
+  {
+    var c = config.copy()
+    if (config.zkHosts.nonEmpty) 
+     {
+       val curator = new ZkCuratorHandler(config.zkHosts)
+       val path = "/"+config.client+"/offline/similar-items"
+       if (curator.getCurator.checkExists().forPath(path) != null)
+       {
+         val bytes = curator.getCurator.getData().forPath(path)
+         val j = new String(bytes,"UTF-8")
+         println(j)
+         import org.json4s._
+         import org.json4s.native.JsonMethods._
+         implicit val formats = DefaultFormats
+         val json = parse(j)
+
+         val cZookeeper = json.extractOpt[SimilarItemsConfig]
+         if (cZookeeper.isDefined)
+           cZookeeper.get
+         else
+           c
+       }
+       else
+         c
+     }
+     else
+       c
+  }
+  
+  
   def main(args: Array[String]) 
   {
 
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
-
-    val parser = new scopt.OptionParser[Config]("SimialrItems") {
+    
+    var c = new SimilarItemsConfig()
+    val parser = new scopt.OptionParser[Unit]("SimilarItems") {
     head("ClusterUsersByDimension", "1.x")
-        opt[Unit]('l', "local") action { (_, c) => c.copy(local = true) } text("local mode - use local Master")
-        opt[String]('c', "client") required() valueName("<client>") action { (x, c) => c.copy(client = x) } text("client name (will be used as db and folder suffix)")
-        opt[String]('i', "input-path") valueName("path url") action { (x, c) => c.copy(inputPath = x) } text("path prefix for input")
-        opt[String]('o', "output-path") valueName("path url") action { (x, c) => c.copy(outputPath = x) } text("path prefix for output")
-        opt[Int]('r', "numdays") action { (x, c) =>c.copy(days = x) } text("number of days in past to get actions for")
-        opt[Int]('e', "itemType") action { (x, c) =>c.copy(itemType = x) } text("item type to limit actions to")
-        opt[Int]("start-day") action { (x, c) =>c.copy(startDay = x) } text("start day in unix time")
-        opt[Int]('u', "minUsersPerItem") action { (x, c) =>c.copy(minUsersPerItem = x) } text("min number of users to interact with an item")
-        opt[Int]('m', "maxUsersPerItem") action { (x, c) =>c.copy(maxUsersPerItem = x) } text("max number of users to interact with an item")
-        opt[Int]('p', "minItemsPerUser") action { (x, c) =>c.copy(minItemsPerUser = x) } text("min number of items a user needs to interact with")
-        opt[Int]('l', "limit") action { (x, c) =>c.copy(limit = x) } text("keep top N similarities per item")
-        opt[Double]('d', "dimsum-threshold") action { (x, c) =>c.copy(dimsumThreshold = x) } text("min cosine similarity estimate for dimsum (soft limit)")
-        opt[Double]('s', "sample") action { (x, c) =>c.copy(sample = x) } text("what percentage of the input data to use, values in range 0.0..1.0, defaults to 1.0 (use all the data)")        
-        opt[String]('a', "awskey") valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
-        opt[String]('s', "awssecret") valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
-        
+        opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
+        opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
+        opt[String]('i', "input-path") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "output-path") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]('e', "itemType") foreach { x =>c = c.copy(itemType = x) } text("item type to limit foreachs to")
+        opt[Int]("start-day") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[Int]('u', "minUsersPerItem") foreach { x =>c = c.copy(minUsersPerItem = x) } text("min number of users to interact with an item")
+        opt[Int]('m', "maxUsersPerItem") foreach { x =>c = c.copy(maxUsersPerItem = x) } text("max number of users to interact with an item")
+        opt[Int]('p', "minItemsPerUser") foreach { x =>c = c.copy(minItemsPerUser = x) } text("min number of items a user needs to interact with")
+        opt[Int]('l', "limit") foreach { x =>c = c.copy(limit = x) } text("keep top N similarities per item")
+        opt[Double]('d', "dimsum-threshold") foreach { x =>c = c.copy(dimsumThreshold = x) } text("min cosine similarity estimate for dimsum (soft limit)")
+        opt[Double]('s', "sample") foreach { x =>c = c.copy(sample = x) } text("what percentage of the input data to use, values in range 0.0..1.0, defaults to 1.0 (use all the data)")        
+        opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
+        opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
+        opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
     }
     
-    parser.parse(args, Config()) map { config =>
-    val conf = new SparkConf()
-      .setAppName("SimilarItems")
-
-    if (config.local)
-      conf.setMaster("local")
-      .set("spark.executor.memory", "8g")
-
-    val sc = new SparkContext(conf)
-    try
+    
+    if (parser.parse(args)) // Parse to check and get zookeeper if there
     {
-      sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-      if (config.awsKey.nonEmpty && config.awsSecret.nonEmpty)
-      {
-        sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
-       sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
-      }
-      println(config)
-      val cByd = new SimilarItems(sc,config)
-      cByd.run()
-    }
-    finally
-    {
-      println("Shutting down job")
-      sc.stop()
-    }
-    } getOrElse 
-    {
+      c = updateConf(c) // update from zookeeper args
+      parser.parse(args) // overrride with args that were on command line
       
-    }
+      val conf = new SparkConf().setAppName("SimilarItems")
 
-    // set up environment
+      if (c.local)
+        conf.setMaster("local")
+        .set("spark.executor.memory", "8g")
 
-    
+      val sc = new SparkContext(conf)
+      try
+      {
+        sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+        if (c.awsKey.nonEmpty && c.awsSecret.nonEmpty)
+        {
+         sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", c.awsKey)
+         sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", c.awsSecret)
+        }
+        println(c)
+        val si = new SimilarItems(sc,c)
+        si.run()
+      }
+      finally
+      {
+        println("Shutting down job")
+        sc.stop()
+      }
+   } 
+   else 
+   {
+      
+   }
+
+
   }
 }
