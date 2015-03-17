@@ -63,7 +63,7 @@ class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
 
   object DataSourceMode extends Enumeration {
     def fromString(s: String): DataSourceMode = {
-      if(s.startsWith("/"))
+      if(s.startsWith("/") || s.startsWith("local:/"))
         return LOCAL
       if(s.startsWith("s3n://"))
         return S3
@@ -304,7 +304,7 @@ object MfModelCreation {
     
     var c = new MfConfig()
     val parser = new scopt.OptionParser[Unit]("MatrixFactorization") {
-    head("ClusterUsersByDimension", "1.x")
+    head("MatrixFactorization", "1.0")
         opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
         opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
         opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")

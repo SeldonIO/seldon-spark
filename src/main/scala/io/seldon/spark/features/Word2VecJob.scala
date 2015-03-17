@@ -31,40 +31,67 @@ import org.apache.spark.rdd._
 import java.io.FileOutputStream
 import java.io.ObjectOutputStream
 import io.seldon.spark.SparkUtils
-
-case class Config (
-    local : Boolean = false,
+import java.io.File
+import io.seldon.spark.rdd.DataSourceMode
+import io.seldon.spark.rdd.DataSourceMode._
+import io.seldon.spark.rdd.FileUtils
+    
+case class Word2VecConfig (
     client : String = "",
     inputPath : String = "/seldon-models",
-    awsKey : String = "",
-    awsSecret : String = "",
     outputPath : String = "/seldon-models",
     startDay : Int = 1,
-    days : Int = 1,
+    days : Int = 1,    
+    awsKey : String = "",
+    awsSecret : String = "",
+    local : Boolean = false,    
+    zkHosts : String = "",
+    activate : Boolean = false,
+    
     minWordCount : Int = 50,
     vectorSize : Int = 30)
 
-class Word2VecJob(private val sc : SparkContext,config : Config) {
+ 
+class Word2VecJob(private val sc : SparkContext,config : Word2VecConfig) {
 
-  def saveVectors(vectors : org.apache.spark.rdd.RDD[(String,Array[Float])],outpath : String)
+  def activate(location : String) 
   {
-    vectors.map{v =>
+    import io.seldon.spark.zookeeper.ZkCuratorHandler
+    import org.apache.curator.utils.EnsurePath
+    val curator = new ZkCuratorHandler(config.zkHosts)
+    if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
+    {
+        val ensurePath = new EnsurePath("/"+config.client+"/word2vec")
+        ensurePath.ensure(curator.getCurator.getZookeeperClient)
+        curator.getCurator.setData().forPath("/"+config.client+"/word2vec",location.getBytes())
+    }
+    else
+      println("Failed to get zookeeper! Can't activate model")
+  }
+    
+  def convertToSemVecFormat(vectors : org.apache.spark.rdd.RDD[(String,Array[Float])],dimension : Int) = 
+  {
+    val vecString = vectors.coalesce(1, true).map{v =>
       val key = v._1.replaceAll(",", "")
       var line = new StringBuilder()
       line ++= key
       for (score <- v._2)
       {
-        line ++= ","
+        line ++= "|"
         line ++= score.toString()
       }
       line.toString()
-    }.saveAsTextFile(outpath)
+    }
+    val header: RDD[String] = sc.parallelize(Array("-vectortype REAL -dimension "+dimension.toString()))
+    val vectorStr = header.union(vecString).coalesce(1, true)
+    vectorStr
   }
  
   def run()
   {
-    //val modelp = loadModel(config.outputPath)
+
     val glob = config.inputPath + "/" + config.client+"/sessionitems/"+SparkUtils.getS3UnixGlob(config.startDay,config.days)+"/*"
+
     println("loading from "+glob)
     
    val input = sc.textFile(glob).map(line => line.split(" ").toSeq)
@@ -76,13 +103,15 @@ class Word2VecJob(private val sc : SparkContext,config : Config) {
    val rdd = sc.parallelize(vectors.toSeq, 200)
 
    val outPath = config.outputPath + "/" + config.client + "/word2vec/"+config.startDay
-   
-   saveVectors(rdd,outPath)
-   
-   //rdd.saveAsObjectFile(config.outputPath)
-   
-   //sc.objectFile(path, minPartitions)
-   
+
+   val mode = DataSourceMode.fromString(config.outputPath)
+
+   val vectorsAsString = convertToSemVecFormat(rdd,config.vectorSize)
+   FileUtils.outputModelToFile(vectorsAsString, outPath, mode, "docvectors.bin")
+   val emptyTermFile: RDD[String] = sc.parallelize(Array("-vectortype REAL -dimension "+config.vectorSize.toString()))
+   FileUtils.outputModelToFile(emptyTermFile, outPath, mode, "termvectors.bin")
+   if (config.activate)
+     activate(outPath)
   }
  
 }
@@ -90,59 +119,99 @@ class Word2VecJob(private val sc : SparkContext,config : Config) {
 
 object Word2VecJob
 {
+    def updateConf(config : Word2VecConfig) =
+  {
+    import io.seldon.spark.zookeeper.ZkCuratorHandler
+    var c = config.copy()
+    if (config.zkHosts.nonEmpty) 
+     {
+       val curator = new ZkCuratorHandler(config.zkHosts)
+       val path = "/"+config.client+"/offline/word2vec"
+       if (curator.getCurator.checkExists().forPath(path) != null)
+       {
+         val bytes = curator.getCurator.getData().forPath(path)
+         val j = new String(bytes,"UTF-8")
+         println(j)
+         import org.json4s._
+         import org.json4s.native.JsonMethods._
+         implicit val formats = DefaultFormats
+         val json = parse(j)
+
+         val cZookeeper = json.extractOpt[Word2VecConfig]
+         if (cZookeeper.isDefined)
+           cZookeeper.get
+         else
+           c
+       }
+       else
+       {
+         println("Failed to get zookeeper. Can't update config!")
+         c
+       }
+     }
+     else
+       c
+  }
+  
+  
   def main(args: Array[String]) 
   {
 
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
 
-    val parser = new scopt.OptionParser[Config]("ClusterUsersByDimension") {
-    head("CrateVWTopicTraining", "1.x")
-    opt[Unit]('l', "local") action { (_, c) => c.copy(local = true) } text("debug mode - use local Master")
-    opt[String]('c', "client") required() valueName("<client>") action { (x, c) => c.copy(client = x) } text("client name")
-    opt[String]('i', "input-path") valueName("input path") action { (x, c) => c.copy(inputPath = x) } text("input location with sentences")
-    opt[String]('o', "output-path") valueName("path url") action { (x, c) => c.copy(outputPath = x) } text("path prefix for output")
-    opt[String]('a', "awskey") valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
-    opt[String]('s', "awssecret") valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
-    opt[Int]('r', "numdays") action { (x, c) =>c.copy(days = x) } text("number of days in past to get actions for")
-    opt[Int]("start-day") action { (x, c) =>c.copy(startDay = x) } text("start day in unix time")
-    opt[Int]("min-word-count") action { (x, c) =>c.copy(minWordCount = x) } text("min count for a token to be included")
-    opt[Int]("vector-size") action { (x, c) =>c.copy(vectorSize = x) } text("vector size")    
+    var c = new Word2VecConfig()
+    val parser = new scopt.OptionParser[Unit]("Word2Vec") {
+    head("Word2Vec", "1.0")
+       opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
+        opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
+        opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
+        opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
+        opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
+        opt[Unit]("activate") foreach { x => c = c.copy(activate = true) } text("activate the model in the Seldon Server")
+        
+        opt[Int]("minWordCount") foreach { x => c = c.copy(minWordCount = x) } text("min count for a token to be included")
+        opt[Int]("vectorSize") foreach { x => c =c.copy(vectorSize = x) } text("vector size")    
     }
     
-    parser.parse(args, Config()) map { config =>
-    val conf = new SparkConf()
-      .setAppName("FindShortestPath")
-      
-    if (config.local)
-      conf
-      .setMaster("local")
-      .set("spark.akka.frameSize", "300")
-    
-    val sc = new SparkContext(conf)
-    try
+    if (parser.parse(args)) // Parse to check and get zookeeper if there
     {
-      sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-      if (config.awsKey.nonEmpty && config.awsSecret.nonEmpty)
-      {
-        sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
-        sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
-      }
-      println(config)
-      val cByd = new Word2VecJob(sc,config)
-      cByd.run()
-    }
-    finally
-    {
-      println("Shutting down job")
-      sc.stop()
-    }
-    } getOrElse 
-    {
-      
-    }
+      c = updateConf(c) // update from zookeeper args
+      parser.parse(args) // overrride with args that were on command line
 
-    // set up environment
+       val conf = new SparkConf().setAppName("Word2Vec")
+
+      if (c.local)
+        conf.setMaster("local")
+        .set("spark.akka.frameSize", "300")
+
+      val sc = new SparkContext(conf)
+      try
+      {
+        sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+        if (c.awsKey.nonEmpty && c.awsSecret.nonEmpty)
+        {
+         sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", c.awsKey)
+         sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", c.awsSecret)
+        }
+        println(c)
+        val w2v = new Word2VecJob(sc,c)
+        w2v.run()
+      }
+      finally
+      {
+        println("Shutting down job")
+        sc.stop()
+      }
+   } 
+   else 
+   {
+      
+   }
 
     
   }

@@ -40,22 +40,39 @@ import io.seldon.spark.SparkUtils
 
 case class DimCount(m : scala.collection.mutable.Map[Int,Int],total : Int)
 case class DimPercent(dim : Int,percent : Float)
-case class Config(
-    local : Boolean = false,
+case class ClusterConfig(
     client : String = "",
-    jdbc : String = "",
     inputPath : String = "/seldon-models",
     outputPath : String = "/seldon-models",
-    minActionsPerUser : Int = 0,
-    delta : Double = 0.1,
-    minClusterSize : Int = 200,
+    startDay : Int = 1,
+    days : Int = 1,    
     awsKey : String = "",
     awsSecret : String = "",
-    startDay : Int = 1,
-    days : Int = 1)
+    local : Boolean = false,    
+    zkHosts : String = "",
+    activate : Boolean = false,
 
-class ClusterUsersByDimension(private val sc : SparkContext,config : Config) {
+    jdbc : String = "",
+    minActionsPerUser : Int = 0,
+    delta : Double = 0.1,
+    minClusterSize : Int = 200)
+
+class ClusterUsersByDimension(private val sc : SparkContext,config : ClusterConfig) {
  
+  def activate(location : String) 
+  {
+    import io.seldon.spark.zookeeper.ZkCuratorHandler
+    import org.apache.curator.utils.EnsurePath
+    val curator = new ZkCuratorHandler(config.zkHosts)
+    if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
+    {
+        val ensurePath = new EnsurePath("/"+config.client+"/usercluster")
+        ensurePath.ensure(curator.getCurator.getZookeeperClient)
+        curator.getCurator.setData().forPath("/"+config.client+"/usercluster",location.getBytes())
+    }
+    else
+      println("Failed to get zookeeper! Can't activate model")
+  }
   
   /*
    * Get the dimensions from the database
@@ -236,64 +253,108 @@ class ClusterUsersByDimension(private val sc : SparkContext,config : Config) {
     val outPath = config.outputPath + "/" + config.client + "/cluster/"+config.startDay
     
     json.coalesce(1, false).saveAsTextFile(outPath)
+    
+     if (config.activate)
+       activate(outPath)
   }
 }
 
 object ClusterUsersByDimension
 {
+     def updateConf(config : ClusterConfig) =
+  {
+    import io.seldon.spark.zookeeper.ZkCuratorHandler
+    var c = config.copy()
+    if (config.zkHosts.nonEmpty) 
+     {
+       val curator = new ZkCuratorHandler(config.zkHosts)
+       val path = "/"+config.client+"/offline/cluster-by-dimension"
+       if (curator.getCurator.checkExists().forPath(path) != null)
+       {
+         val bytes = curator.getCurator.getData().forPath(path)
+         val j = new String(bytes,"UTF-8")
+         println(j)
+         import org.json4s._
+         import org.json4s.native.JsonMethods._
+         implicit val formats = DefaultFormats
+         val json = parse(j)
+
+         val cZookeeper = json.extractOpt[ClusterConfig]
+         if (cZookeeper.isDefined)
+           cZookeeper.get
+         else
+           c
+       }
+       else
+       {
+         println("Failed to get zookeeper. Can't update config!")
+         c
+       }
+     }
+     else
+       c
+  }
+  
+ 
   def main(args: Array[String]) 
   {
 
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
 
-    val parser = new scopt.OptionParser[Config]("ClusterUsersByDimension") {
-    head("ClusterUsersByDimension", "1.x")
-    opt[Unit]('l', "local") action { (_, c) => c.copy(local = true) } text("local mode - use local Master")
-    opt[String]('c', "client") required() valueName("<client>") action { (x, c) => c.copy(client = x) } text("client name (will be used as db and folder suffix)")
-    opt[String]('i', "input-path") valueName("path url") action { (x, c) => c.copy(inputPath = x) } text("path prefix for input")
-    opt[String]('o', "output-path") valueName("path url") action { (x, c) => c.copy(outputPath = x) } text("path prefix for output")
-    opt[String]('j', "jdbc") required() valueName("<JDBC URL>") action { (x, c) => c.copy(jdbc = x) } text("jdbc url (to get dimension for all items)")
-    opt[Int]('r', "numdays") action { (x, c) =>c.copy(days = x) } text("number of days in past to get actions for")
-    opt[Int]("start-day") action { (x, c) =>c.copy(startDay = x) } text("start day in unix time")
-    opt[Int]('m', "minActionsPerUser") action { (x, c) =>c.copy(minActionsPerUser = x) } text("min number of actions per user")
-    opt[Int]('z', "minClusterSize") action { (x, c) =>c.copy(minClusterSize = x) } text("min cluster size")
-    opt[Double]('d', "delta") action { (x, c) =>c.copy(delta = x) } text("min difference in dim percentage for user to be clustered in dimension")
-    opt[String]('a', "awskey") valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
-    opt[String]('s', "awssecret") valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
-    }
-    
-    parser.parse(args, Config()) map { config =>
-    val conf = new SparkConf()
-      .setAppName("ClusterUsersByDimension")
-    
-    if (config.local)
-      conf.setMaster("local")
-      .set("spark.executor.memory", "8g")
+    var c = new ClusterConfig()
+    val parser = new scopt.OptionParser[Unit]("ClusterUsersByDimension") {
+    head("ClusterUsersByDimension", "1.0")
+       opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
+        opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
+        opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
+        opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
+        opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
+        opt[Unit]("activate") foreach { x => c = c.copy(activate = true) } text("activate the model in the Seldon Server")
 
-     val sc = new SparkContext(conf)
-    try
-    {
+        opt[String]('j', "jdbc") required() valueName("<JDBC URL>") foreach { x => c = c.copy(jdbc = x) } text("jdbc url (to get dimension for all items)")
+        opt[Int]('m', "minActionsPerUser") foreach { x => c = c.copy(minActionsPerUser = x) } text("min number of actions per user")
+        opt[Int]('z', "minClusterSize") foreach { x => c = c.copy(minClusterSize = x) } text("min cluster size")
+        opt[Double]('d', "delta") foreach { x => c = c.copy(delta = x) } text("min difference in dim percentage for user to be clustered in dimension")
+    }
     
-      sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-      if (config.awsKey.nonEmpty && config.awsSecret.nonEmpty)
+      if (parser.parse(args)) // Parse to check and get zookeeper if there
+    {
+      c = updateConf(c) // update from zookeeper args
+      parser.parse(args) // overrride with args that were on command line
+
+       val conf = new SparkConf().setAppName("ClusterUsersByDimension")
+
+      if (c.local)
+        conf.setMaster("local")
+        .set("spark.akka.frameSize", "300")
+
+      val sc = new SparkContext(conf)
+      try
       {
-        sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
-        sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
+        sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+        if (c.awsKey.nonEmpty && c.awsSecret.nonEmpty)
+        {
+         sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", c.awsKey)
+         sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", c.awsSecret)
+        }
+        println(c)
+        val cu = new ClusterUsersByDimension(sc,c)
+        cu.run()
       }
-      println(config)
-      val cByd = new ClusterUsersByDimension(sc,config)
-      cByd.run()
-    }
-    finally
-    {
-      println("Shutting down job")
-      sc.stop()
-    }
-    } getOrElse 
-    {
+      finally
+      {
+        println("Shutting down job")
+        sc.stop()
+      }
+   } 
+   else 
+   {
       
-    }
-    
+   }
   }
 }

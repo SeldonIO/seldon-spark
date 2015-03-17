@@ -33,14 +33,16 @@ import org.joda.time.format.DateTimeFormat
 import scala.util.Random
 
 case class SessionItemsConfig(
-    local : Boolean = false,
     client : String = "",
     inputPath : String = "/seldon-models",
     outputPath : String = "/seldon-models",
+    startDay : Int = 1,
+    days : Int = 1,    
     awsKey : String = "",
     awsSecret : String = "",
-    startDay : Int = 1,
-    days : Int = 1,
+    local : Boolean = false,    
+    zkHosts : String = "",
+    
     maxIntraSessionGapSecs : Int =  -1,
     minActionsPerUser : Int = 0,
     maxActionsPerUser : Int = 100000)
@@ -115,59 +117,96 @@ class SessionItems(private val sc : SparkContext,config : SessionItemsConfig) {
 
  object SessionItems
 {
+      def updateConf(config : SessionItemsConfig) =
+  {
+    import io.seldon.spark.zookeeper.ZkCuratorHandler
+    var c = config.copy()
+    if (config.zkHosts.nonEmpty) 
+     {
+       val curator = new ZkCuratorHandler(config.zkHosts)
+       val path = "/"+config.client+"/offline/sessionitems"
+       if (curator.getCurator.checkExists().forPath(path) != null)
+       {
+         val bytes = curator.getCurator.getData().forPath(path)
+         val j = new String(bytes,"UTF-8")
+         println(j)
+         import org.json4s._
+         import org.json4s.native.JsonMethods._
+         implicit val formats = DefaultFormats
+         val json = parse(j)
+
+         val cZookeeper = json.extractOpt[SessionItemsConfig]
+         if (cZookeeper.isDefined)
+           cZookeeper.get
+         else
+           c
+       }
+       else
+       {
+         println("Failed to get zookeeper. Can't update config!")
+         c
+       }
+     }
+     else
+       c
+  }
+   
   def main(args: Array[String]) 
   {
 
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
 
-    val parser = new scopt.OptionParser[SessionItemsConfig]("ClusterUsersByDimension") {
-    head("CrateVWTopicTraining", "1.x")
-    opt[Unit]('l', "local") action { (_, c) => c.copy(local = true) } text("debug mode - use local Master")
-    opt[String]('c', "client") required() valueName("<client>") action { (x, c) => c.copy(client = x) } text("client name (will be used as db and folder suffix)")
-    opt[String]('i', "input-path") valueName("path url") action { (x, c) => c.copy(inputPath = x) } text("path prefix for input")
-    opt[String]('o', "output-path") valueName("path url") action { (x, c) => c.copy(outputPath = x) } text("path prefix for output")
-    opt[Int]('r', "numdays") action { (x, c) =>c.copy(days = x) } text("number of days in past to get actions for")
-    opt[Int]("start-day") action { (x, c) =>c.copy(startDay = x) } text("start day in unix time")
-    opt[String]('a', "awskey") valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
-    opt[String]('s', "awssecret") valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
-    opt[Int]('m', "minActionsPerUser") action { (x, c) =>c.copy(minActionsPerUser = x) } text("min number of actions per user")
-    opt[Int]('m', "maxActionsPerUser") action { (x, c) =>c.copy(maxActionsPerUser = x) } text("max number of actions per user")    
-    opt[Int]('m', "maxSessionGap") action { (x, c) =>c.copy(maxIntraSessionGapSecs = x) } text("max number of secs before assume session over")        
+    var c = new SessionItemsConfig()
+    val parser = new scopt.OptionParser[Unit]("SessionItems") {
+    head("SessionItems", "1.0")
+       opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
+        opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
+        opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
+        opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
+        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
+        opt[String]('a', "awskey") valueName("aws access key") foreach { x => c = c.copy(awsKey = x) } text("aws key")
+        opt[String]('s', "awssecret") valueName("aws secret") foreach { x => c = c.copy(awsSecret = x) } text("aws secret")
+        opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
+
+        opt[Int]("minActionsPerUser") foreach { x => c = c.copy(minActionsPerUser = x) } text("min number of actions per user")
+        opt[Int]("maxActionsPerUser") foreach { x => c = c.copy(maxActionsPerUser = x) } text("max number of actions per user")    
+        opt[Int]("maxIntraSessionGapSecs") foreach { x => c = c.copy(maxIntraSessionGapSecs = x) } text("max number of secs before assume session over")        
     }
     
-    parser.parse(args, SessionItemsConfig()) map { config =>
-    val conf = new SparkConf()
-      .setAppName("CreateVWTopicTraining")
-      
-    if (config.local)
-      conf.setMaster("local")
-    
-    val sc = new SparkContext(conf)
-    try
+     if (parser.parse(args)) // Parse to check and get zookeeper if there
     {
-      sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-      if (config.awsKey.nonEmpty && config.awsSecret.nonEmpty)
+      c = updateConf(c) // update from zookeeper args
+      parser.parse(args) // overrride with args that were on command line
+
+       val conf = new SparkConf().setAppName("SessionItems")
+
+      if (c.local)
+        conf.setMaster("local")
+
+      val sc = new SparkContext(conf)
+      try
       {
-        sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
-        sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
+        sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+        if (c.awsKey.nonEmpty && c.awsSecret.nonEmpty)
+        {
+         sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", c.awsKey)
+         sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", c.awsSecret)
+        }
+        println(c)
+        val si = new SessionItems(sc,c)
+        si.run()
       }
-      println(config)
-      val cByd = new SessionItems(sc,config)
-      cByd.run()
-    }
-    finally
-    {
-      println("Shutting down job")
-      sc.stop()
-    }
-    } getOrElse 
-    {
+      finally
+      {
+        println("Shutting down job")
+        sc.stop()
+      }
+   } 
+   else 
+   {
       
-    }
-
-    // set up environment
-
-    
+   }
   }
 }
