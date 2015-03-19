@@ -53,7 +53,7 @@ class SessionTags(private val sc : SparkContext,config : SessionTagsConfig) {
     
     val rdd = sc.textFile(path).map{line =>
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       val formatter = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
       val json = parse(line)

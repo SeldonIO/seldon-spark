@@ -53,7 +53,7 @@ class SessionItems(private val sc : SparkContext,config : SessionItemsConfig) {
     
     val rdd = sc.textFile(path).map{line =>
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       val formatter = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
       val json = parse(line)
@@ -131,7 +131,7 @@ class SessionItems(private val sc : SparkContext,config : SessionItemsConfig) {
          val j = new String(bytes,"UTF-8")
          println(j)
          import org.json4s._
-         import org.json4s.native.JsonMethods._
+         import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
 
