@@ -299,7 +299,7 @@ object MfModelCreation {
   def printClasspath() {
     println("--- Classpath ------------------------------")
     val sysClassLoader = ClassLoader.getSystemClassLoader();
-    val urls = sysClassLoader.asInstanceOf[URLClassLoader].getURLs(); //((java.lang.URLClassLoader) sysClassLoader).getURLs();
+    val urls = sysClassLoader.asInstanceOf[URLClassLoader].getURLs();
     urls.foreach( println)
     println("--------------------------------------------")
   }
