@@ -285,14 +285,20 @@ object MfModelCreation {
          val cZookeeper = json.extractOpt[MfConfig]
          if (cZookeeper.isDefined)
            cZookeeper.get
-         else
+         else {
+           println("Warning: using default MfConfig - json deserialization failed!");
+           c
+       	 }
+       }
+       else {
+           println("Warning: using default MfConfig - path["+path+"] not found!");
            c
        }
-       else
-         c
      }
-     else
+     else {
+       println("Warning: using default MfConfig - no zkHost!");
        c
+     }
   }
   
   
