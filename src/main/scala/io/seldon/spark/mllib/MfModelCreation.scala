@@ -39,6 +39,7 @@ import org.json4s.native.JsonMethods._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{HashPartitioner, SparkContext, SparkConf}
 import scala.util.Random._
+import java.net.URLClassLoader
 
 
 case class MfConfig(
@@ -301,10 +302,18 @@ object MfModelCreation {
      }
   }
   
+  def printClasspath() {
+    println("--- Classpath ------------------------------")
+    val sysClassLoader = ClassLoader.getSystemClassLoader();
+    val urls = sysClassLoader.asInstanceOf[URLClassLoader].getURLs(); //((java.lang.URLClassLoader) sysClassLoader).getURLs();
+    urls.foreach( println)
+    println("--------------------------------------------")
+  }
   
   def main(args: Array[String]) 
   {
-
+	printClasspath();
+    
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
     
