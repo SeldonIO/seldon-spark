@@ -316,7 +316,7 @@ object ClusterUsersByDimension
         opt[String]('z', "zookeeper") valueName("zookeeper hosts") foreach { x => c = c.copy(zkHosts = x) } text("zookeeper hosts (comma separated)")        
         opt[Unit]("activate") foreach { x => c = c.copy(activate = true) } text("activate the model in the Seldon Server")
 
-        opt[String]('j', "jdbc") required() valueName("<JDBC URL>") foreach { x => c = c.copy(jdbc = x) } text("jdbc url (to get dimension for all items)")
+        opt[String]('j', "jdbc") valueName("<JDBC URL>") foreach { x => c = c.copy(jdbc = x) } text("jdbc url (to get dimension for all items)")
         opt[Int]('m', "minActionsPerUser") foreach { x => c = c.copy(minActionsPerUser = x) } text("min number of actions per user")
         opt[Int]('z', "minClusterSize") foreach { x => c = c.copy(minClusterSize = x) } text("min cluster size")
         opt[Double]('d', "delta") foreach { x => c = c.copy(delta = x) } text("min difference in dim percentage for user to be clustered in dimension")
