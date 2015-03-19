@@ -283,13 +283,7 @@ object MfModelCreation {
          implicit val formats = DefaultFormats
          val json = parse(j)
 
-         val cZookeeper = json.extractOpt[MfConfig]
-         if (cZookeeper.isDefined)
-           cZookeeper.get
-         else {
-           println("Warning: using default MfConfig - json deserialization failed!");
-           c
-       	 }
+         json.extract[MfConfig]
        }
        else {
            println("Warning: using default MfConfig - path["+path+"] not found!");
