@@ -267,7 +267,7 @@ class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
 object MfModelCreation {
 
  
-    def updateConf(config : MfConfig) =
+  def updateConf(config : MfConfig) =
   {
     var c = config.copy()
     if (config.zkHosts.nonEmpty) 
@@ -284,7 +284,7 @@ object MfModelCreation {
          implicit val formats = DefaultFormats
          val json = parse(j)
          import org.json4s.JsonDSL._
-         import org.json4s.jackson.Serialization.{ read, write, writePretty }
+         import org.json4s.jackson.Serialization.write
          type DslConversion = MfConfig => JValue
          val existingConf = write(c) // turn existing conf into json
          val existingParsed = parse(existingConf) // parse it back into json4s internal format
@@ -292,13 +292,15 @@ object MfModelCreation {
          c = combined.extract[MfConfig] // extract case class from merged json
          c
        }
-       else {
-           println("Warning: using default MfConfig - path["+path+"] not found!");
+       else 
+       {
+           println("Warning: using default configuration - path["+path+"] not found!");
            c
        }
      }
-     else {
-       println("Warning: using default MfConfig - no zkHost!");
+     else 
+     {
+       println("Warning: using default configuration - no zkHost!");
        c
      }
   }

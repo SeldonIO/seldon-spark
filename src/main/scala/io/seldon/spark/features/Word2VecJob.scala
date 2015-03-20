@@ -119,7 +119,7 @@ class Word2VecJob(private val sc : SparkContext,config : Word2VecConfig) {
 
 object Word2VecJob
 {
-    def updateConf(config : Word2VecConfig) =
+  def updateConf(config : Word2VecConfig) =
   {
     import io.seldon.spark.zookeeper.ZkCuratorHandler
     var c = config.copy()
@@ -131,28 +131,34 @@ object Word2VecJob
        {
          val bytes = curator.getCurator.getData().forPath(path)
          val j = new String(bytes,"UTF-8")
-         println(j)
+         println("Confguration from zookeeper -> "+j)
          import org.json4s._
          import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
-
-         val cZookeeper = json.extractOpt[Word2VecConfig]
-         if (cZookeeper.isDefined)
-           cZookeeper.get
-         else
-           c
-       }
-       else
-       {
-         println("Failed to get zookeeper. Can't update config!")
+         import org.json4s.JsonDSL._
+         import org.json4s.jackson.Serialization.write
+         type DslConversion = Word2VecConfig => JValue
+         val existingConf = write(c) // turn existing conf into json
+         val existingParsed = parse(existingConf) // parse it back into json4s internal format
+         val combined = existingParsed merge json // merge with zookeeper value
+         c = combined.extract[Word2VecConfig] // extract case class from merged json
          c
        }
+       else 
+       {
+           println("Warning: using default configuaration - path["+path+"] not found!");
+           c
+       }
      }
-     else
+     else 
+     {
+       println("Warning: using default configuration - no zkHost!");
        c
+     }
   }
   
+ 
   
   def main(args: Array[String]) 
   {
