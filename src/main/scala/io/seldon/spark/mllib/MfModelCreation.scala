@@ -40,7 +40,6 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{HashPartitioner, SparkContext, SparkConf}
 import scala.util.Random._
 
-
 case class MfConfig(
     client : String = "",
     inputPath : String = "/seldon-models",
@@ -58,12 +57,13 @@ case class MfConfig(
     alpha : Double = 1,
     iterations : Int = 2
  )
-    
+ 
+
 class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
 
   object DataSourceMode extends Enumeration {
     def fromString(s: String): DataSourceMode = {
-      if(s.startsWith("/") || s.startsWith("local:/"))
+      if(s.startsWith("/"))
         return LOCAL
       if(s.startsWith("s3n://"))
         return S3
@@ -265,6 +265,7 @@ class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
  */
 object MfModelCreation {
 
+ 
     def updateConf(config : MfConfig) =
   {
     var c = config.copy()
@@ -281,12 +282,14 @@ object MfModelCreation {
          import org.json4s.native.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
-
-         val cZookeeper = json.extractOpt[MfConfig]
-         if (cZookeeper.isDefined)
-           cZookeeper.get
-         else
-           c
+         import org.json4s.JsonDSL._
+         import org.json4s.native.Serialization.{ read, write, writePretty }
+         type DslConversion = MfConfig => JValue
+         val existingConf = write(c) // turn existing conf into json
+         val existingParsed = parse(existingConf) // parse it back into json4s internal format
+         val combined = existingParsed merge json // merge with zookeeper value
+         c = combined.extract[MfConfig] // extract case class from merged json
+         c
        }
        else
          c
@@ -304,7 +307,7 @@ object MfModelCreation {
     
     var c = new MfConfig()
     val parser = new scopt.OptionParser[Unit]("MatrixFactorization") {
-    head("MatrixFactorization", "1.0")
+    head("ClusterUsersByDimension", "1.x")
         opt[Unit]('l', "local") foreach { x => c = c.copy(local = true) } text("local mode - use local Master")
         opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
         opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
