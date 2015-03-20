@@ -170,9 +170,9 @@ class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
     {
       val curator = new ZkCuratorHandler(zkServer)
       if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut()){
-        val ensurePath = new EnsurePath("/"+client+"/mf")
+        val ensurePath = new EnsurePath("/all_clients/"+client+"/mf")
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
-        curator.getCurator.setData().forPath("/"+client+"/mf",(outputFilesLocation+date).getBytes())
+        curator.getCurator.setData().forPath("/all_clients/"+client+"/mf",(outputFilesLocation+date).getBytes())
       }
     }
     
