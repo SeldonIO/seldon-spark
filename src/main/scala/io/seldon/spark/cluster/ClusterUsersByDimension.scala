@@ -66,9 +66,9 @@ class ClusterUsersByDimension(private val sc : SparkContext,config : ClusterConf
     val curator = new ZkCuratorHandler(config.zkHosts)
     if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
     {
-        val ensurePath = new EnsurePath("/"+config.client+"/usercluster")
+        val ensurePath = new EnsurePath("/all_clients/"+config.client+"/usercluster")
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
-        curator.getCurator.setData().forPath("/"+config.client+"/usercluster",location.getBytes())
+        curator.getCurator.setData().forPath("/all_clients/"+config.client+"/usercluster",location.getBytes())
     }
     else
       println("Failed to get zookeeper! Can't activate model")
@@ -268,7 +268,7 @@ object ClusterUsersByDimension
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/cluster-by-dimension"
+       val path = "/all_clients/"+config.client+"/offline/cluster-by-dimension"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)

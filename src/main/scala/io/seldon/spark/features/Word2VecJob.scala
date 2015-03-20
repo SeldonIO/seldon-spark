@@ -61,9 +61,9 @@ class Word2VecJob(private val sc : SparkContext,config : Word2VecConfig) {
     val curator = new ZkCuratorHandler(config.zkHosts)
     if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
     {
-        val ensurePath = new EnsurePath("/"+config.client+"/word2vec")
+        val ensurePath = new EnsurePath("/all_clients/"+config.client+"/word2vec")
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
-        curator.getCurator.setData().forPath("/"+config.client+"/word2vec",location.getBytes())
+        curator.getCurator.setData().forPath("/all_clients/"+config.client+"/word2vec",location.getBytes())
     }
     else
       println("Failed to get zookeeper! Can't activate model")
@@ -126,7 +126,7 @@ object Word2VecJob
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/word2vec"
+       val path = "/all_clients/"+config.client+"/offline/word2vec"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)
