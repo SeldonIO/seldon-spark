@@ -63,7 +63,7 @@ class Ctr(private val sc : SparkContext,config : CtrConfig) {
       if (parts(1) == "restapi.ctr")
       {
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       try
       {

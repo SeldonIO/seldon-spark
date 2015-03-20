@@ -35,10 +35,11 @@ import org.jets3t.service.impl.rest.httpclient.RestS3Service
 import org.jets3t.service.model.{S3Object, S3Bucket}
 import org.jets3t.service.security.AWSCredentials
 import org.json4s._
-import org.json4s.native.JsonMethods._
+import org.json4s.jackson.JsonMethods._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{HashPartitioner, SparkContext, SparkConf}
 import scala.util.Random._
+import java.net.URLClassLoader
 
 case class MfConfig(
     client : String = "",
@@ -279,11 +280,11 @@ object MfModelCreation {
          val j = new String(bytes,"UTF-8")
          println(j)
          import org.json4s._
-         import org.json4s.native.JsonMethods._
+         import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
          import org.json4s.JsonDSL._
-         import org.json4s.native.Serialization.{ read, write, writePretty }
+         import org.json4s.jackson.Serialization.{ read, write, writePretty }
          type DslConversion = MfConfig => JValue
          val existingConf = write(c) // turn existing conf into json
          val existingParsed = parse(existingConf) // parse it back into json4s internal format
@@ -291,17 +292,29 @@ object MfModelCreation {
          c = combined.extract[MfConfig] // extract case class from merged json
          c
        }
-       else
-         c
+       else {
+           println("Warning: using default MfConfig - path["+path+"] not found!");
+           c
+       }
      }
-     else
+     else {
+       println("Warning: using default MfConfig - no zkHost!");
        c
+     }
   }
   
+  def printClasspath() {
+    println("--- Classpath ------------------------------")
+    val sysClassLoader = ClassLoader.getSystemClassLoader();
+    val urls = sysClassLoader.asInstanceOf[URLClassLoader].getURLs();
+    urls.foreach( println)
+    println("--------------------------------------------")
+  }
   
   def main(args: Array[String]) 
   {
-
+	printClasspath();
+    
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
     

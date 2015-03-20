@@ -96,7 +96,7 @@ class ClusterUsersByDimension(private val sc : SparkContext,config : ClusterConf
     
     val rdd = sc.textFile(path).map{line =>
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
     
       val json = parse(line)
@@ -275,7 +275,7 @@ object ClusterUsersByDimension
          val j = new String(bytes,"UTF-8")
          println(j)
          import org.json4s._
-         import org.json4s.native.JsonMethods._
+         import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
 

@@ -49,7 +49,7 @@ class createVWTopicTraining(private val sc : SparkContext,config : Config) {
     
     val rdd = sc.textFile(path).map{line =>
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
     
       val json = parse(line)

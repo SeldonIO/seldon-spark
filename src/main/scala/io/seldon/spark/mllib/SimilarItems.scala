@@ -64,7 +64,7 @@ class SimilarItems(private val sc : SparkContext,config : SimilarItemsConfig) {
     
     val rdd = sc.textFile(path).flatMap{line =>
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       val rand = new Random()    
       val json = parse(line)
@@ -197,7 +197,7 @@ object SimilarItems
          val j = new String(bytes,"UTF-8")
          println(j)
          import org.json4s._
-         import org.json4s.native.JsonMethods._
+         import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
          val json = parse(j)
 

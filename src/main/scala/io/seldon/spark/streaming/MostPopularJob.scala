@@ -35,7 +35,7 @@ import org.apache.log4j.Level
 import org.apache.log4j.Logger
 
 import org.json4s._
-import org.json4s.native.JsonMethods._
+import org.json4s.jackson.JsonMethods._
 /**
  * @author firemanphil
  *         Date: 05/11/14

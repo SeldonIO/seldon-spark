@@ -62,7 +62,7 @@ class Engagement(private val sc : SparkContext,config : EngagementConfig) {
       if (parts(1) == "restapi.ctralg")
       {
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       
       val json = parse(parts(2))

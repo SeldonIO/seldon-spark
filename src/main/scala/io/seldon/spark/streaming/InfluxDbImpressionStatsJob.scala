@@ -62,7 +62,7 @@ class InfluxdbImpressionsStatsJob(private val sc : StreamingContext,config : Imp
     val rdd = lines.flatMap{line =>
       
       import org.json4s._
-      import org.json4s.native.JsonMethods._
+      import org.json4s.jackson.JsonMethods._
       implicit val formats = DefaultFormats
       val json = parse(line)
       val tag = (json \ "tag").extract[String]
