@@ -275,7 +275,7 @@ object MfModelCreation {
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/matrix-factorization"
+       val path = "/all_clients/"+config.client+"/offline/matrix-factorization"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)
@@ -307,18 +307,9 @@ object MfModelCreation {
      }
   }
   
-  def printClasspath() {
-    println("--- Classpath ------------------------------")
-    val sysClassLoader = ClassLoader.getSystemClassLoader();
-    val urls = sysClassLoader.asInstanceOf[URLClassLoader].getURLs();
-    urls.foreach( println)
-    println("--------------------------------------------")
-  }
-  
+
   def main(args: Array[String]) 
   {
-	printClasspath();
-    
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
     Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
     

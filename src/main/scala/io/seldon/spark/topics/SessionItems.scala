@@ -125,7 +125,7 @@ class SessionItems(private val sc : SparkContext,config : SessionItemsConfig) {
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/sessionitems"
+       val path = "/all_clients/"+config.client+"/offline/sessionitems"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)

@@ -269,7 +269,7 @@ object ClusterUsersByDimension
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/cluster-by-dimension"
+       val path = "/all_clients/"+config.client+"/offline/cluster-by-dimension"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)

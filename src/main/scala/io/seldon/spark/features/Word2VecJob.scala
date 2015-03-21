@@ -127,7 +127,7 @@ object Word2VecJob
     if (config.zkHosts.nonEmpty) 
      {
        val curator = new ZkCuratorHandler(config.zkHosts)
-       val path = "/"+config.client+"/offline/word2vec"
+       val path = "/all_clients/"+config.client+"/offline/word2vec"
        if (curator.getCurator.checkExists().forPath(path) != null)
        {
          val bytes = curator.getCurator.getData().forPath(path)
