@@ -169,10 +169,12 @@ class MfModelCreation(private val sc : SparkContext,config : MfConfig) {
     if (config.activate)
     {
       val curator = new ZkCuratorHandler(zkServer)
-      if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut()){
-        val ensurePath = new EnsurePath("/"+client+"/mf")
+      if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
+      {
+        val zkPath = "/all_clients/"+client+"/mf"
+        val ensurePath = new EnsurePath(zkPath)
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
-        curator.getCurator.setData().forPath("/"+client+"/mf",(outputFilesLocation+date).getBytes())
+        curator.getCurator.setData().forPath(zkPath,(outputFilesLocation+date).getBytes())
       }
     }
     
@@ -278,7 +280,7 @@ object MfModelCreation {
        {
          val bytes = curator.getCurator.getData().forPath(path)
          val j = new String(bytes,"UTF-8")
-         println(j)
+         println("Configuration from zookeeper -> ",j)
          import org.json4s._
          import org.json4s.jackson.JsonMethods._
          implicit val formats = DefaultFormats
