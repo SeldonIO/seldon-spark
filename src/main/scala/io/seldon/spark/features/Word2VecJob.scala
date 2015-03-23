@@ -108,9 +108,9 @@ class Word2VecJob(private val sc : SparkContext,config : Word2VecConfig) {
    val mode = DataSourceMode.fromString(config.outputPath)
 
    val vectorsAsString = convertToSemVecFormat(rdd,config.vectorSize)
-   FileUtils.outputModelToFile(vectorsAsString, outPath, mode, "docvectors.bin")
+   FileUtils.outputModelToFile(vectorsAsString, outPath, mode, "docvectors.txt")
    val emptyTermFile: RDD[String] = sc.parallelize(Array("-vectortype REAL -dimension "+config.vectorSize.toString()))
-   FileUtils.outputModelToFile(emptyTermFile, outPath, mode, "termvectors.bin")
+   FileUtils.outputModelToFile(emptyTermFile, outPath, mode, "termvectors.txt")
    if (config.activate)
      activate(outPath)
   }
