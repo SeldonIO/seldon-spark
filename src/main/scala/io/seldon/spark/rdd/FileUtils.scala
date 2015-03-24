@@ -28,8 +28,15 @@ object FileUtils {
   
   def outputModelToFile(model: RDD[String],outputFilesLocation:String, outputType:DataSourceMode,filename:String) {
     outputType match {
-      case LOCAL => outputModelToLocalFile(model,outputFilesLocation,filename)
-      case S3 => outputModelToS3File(model, outputFilesLocation, filename)
+      case LOCAL => outputModelToLocalFile(model.collect(),outputFilesLocation,filename)
+      case S3 => outputModelToS3File(model.collect(), outputFilesLocation, filename)
+    }
+ }
+  
+  def outputModelToFile(lines: Array[String],outputFilesLocation:String, outputType:DataSourceMode,filename:String) {
+    outputType match {
+      case LOCAL => outputModelToLocalFile(lines,outputFilesLocation,filename)
+      case S3 => outputModelToS3File(lines, outputFilesLocation, filename)
     }
  }
   
@@ -38,12 +45,12 @@ object FileUtils {
     try { op(p) } finally { p.close() }
   }
   
-  def outputModelToLocalFile(model: RDD[String], outputFilesLocation: String, filename : String) = {
+  def outputModelToLocalFile(lines: Array[String], outputFilesLocation: String, filename : String) = {
     new File(outputFilesLocation).mkdirs()
     val userFile = new File(outputFilesLocation+"/"+filename);
     userFile.createNewFile()
     printToFile(userFile){
-      p => model.collect().foreach {
+      p => lines.foreach {
         s => {
           p.println(s)
         }
@@ -52,7 +59,7 @@ object FileUtils {
   }
   
   
-   def outputModelToS3File(model: RDD[String], outputFilesLocation: String,  filename : String) = {
+   def outputModelToS3File(lines: Array[String], outputFilesLocation: String,  filename : String) = {
      import org.jets3t.service.S3Service
      import org.jets3t.service.impl.rest.httpclient.RestS3Service
      import org.jets3t.service.model.{S3Object, S3Bucket}
@@ -62,7 +69,7 @@ object FileUtils {
      val bucket = service.getBucket(bucketString)
      val s3Folder = outputFilesLocation.replace(bucketString+"/","")
      val outBuf = new StringBuffer()
-     model.collect().foreach(u => {
+     lines.foreach(u => {
       outBuf.append(u)
       outBuf.append("\n")
     })
