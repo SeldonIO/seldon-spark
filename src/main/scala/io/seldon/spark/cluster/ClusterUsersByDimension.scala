@@ -66,7 +66,7 @@ class ClusterUsersByDimension(private val sc : SparkContext,config : ClusterConf
     val curator = new ZkCuratorHandler(config.zkHosts)
     if(curator.getCurator.getZookeeperClient.blockUntilConnectedOrTimedOut())
     {
-        val zkPath = "/all_clients/"+config.client+"/usercluster"
+        val zkPath = "/all_clients/"+config.client+"/userclusters"
         val ensurePath = new EnsurePath(zkPath)
         ensurePath.ensure(curator.getCurator.getZookeeperClient)
         curator.getCurator.setData().forPath(zkPath,location.getBytes())
