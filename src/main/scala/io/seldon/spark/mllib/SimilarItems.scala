@@ -236,7 +236,7 @@ object SimilarItems
         opt[String]('c', "client") required() valueName("<client>") foreach { x => c = c.copy(client = x) } text("client name (will be used as db and folder suffix)")
         opt[String]('i', "inputPath") valueName("path url") foreach { x => c = c.copy(inputPath = x) } text("path prefix for input")
         opt[String]('o', "outputPath") valueName("path url") foreach { x => c = c.copy(outputPath = x) } text("path prefix for output")
-        opt[Int]('r', "numdays") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
+        opt[Int]('r', "days") foreach { x =>c = c.copy(days = x) } text("number of days in past to get foreachs for")
         opt[Int]('e', "itemType") foreach { x =>c = c.copy(itemType = x) } text("item type to limit foreachs to")
         opt[Int]("startDay") foreach { x =>c = c.copy(startDay = x) } text("start day in unix time")
         opt[Int]('u', "minUsersPerItem") foreach { x =>c = c.copy(minUsersPerItem = x) } text("min number of users to interact with an item")
