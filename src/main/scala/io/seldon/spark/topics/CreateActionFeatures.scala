@@ -30,6 +30,10 @@ import org.joda.time.format.DateTimeFormat
 import java.sql.ResultSet
 import scala.collection.mutable.ListBuffer
 import io.seldon.spark.SparkUtils
+import org.apache.spark.mllib.feature.HashingTF
+import org.apache.spark.mllib.feature.IDF
+import org.joda.time.Duration
+import org.joda.time.LocalDateTime
 
 case class ActionConfig(
     local : Boolean = false,
@@ -38,15 +42,14 @@ case class ActionConfig(
     outputPath : String = "",
     awsKey : String = "",
     jdbc : String = "",
-    tagAttrId : Int = 9,  
+    tagAttr : String = "tag",  
     startDay : Int = 0,
     days : Int = 1,
     awsSecret : String = "",
-    numUserTagsToKeep : Int = 400,
-    numItemTagsToKeep : Int = 400,
-    minNumActionsPerUser : Int = 20,
-    maxNumActionsPerUser : Int = 60,
-    actionNumToStart : Int = 10)
+    minNumActionsPerUser : Int = 11,
+    maxNumActionsPerUser : Int = 100,
+    actionNumToStart : Int = 10,
+    minTermDocFreq : Int = 10)
     
     
 class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) {
@@ -63,18 +66,21 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
       val item = (json \ "itemid").extract[Int]
       val dateUtc = (json \ "timestamp_utc").extract[String]
       
-      val date = formatter.parseDateTime(dateUtc)
-      
-      
-      (item,(user,date.getMillis()))
+      val date1 = org.joda.time.format.ISODateTimeFormat.dateTimeParser.withZoneUTC.parseDateTime(dateUtc)
+      //val date = formatter.parseLocalDateTime(dateUtc)
+
+      (item,(user,date1.getMillis()))
       }
     
     rdd
   }
    
-   def getItemTagsFromDb(jdbc : String,tagAttrId : Int) = 
+      def getItemTagsFromDb(jdbc : String,attr : String) = 
   {
-    val sql = "select i.item_id,i.client_item_id,unix_timestamp(first_op),tags.value as tags from items i join item_map_varchar tags on (i.item_id=tags.item_id and tags.attr_id="+tagAttrId.toString()+") where i.item_id>? and i.item_id<?"
+    //val sql = "select i.item_id,i.client_item_id,unix_timestamp(first_op),tags.value as tags from items i join item_map_"+table+" tags on (i.item_id=tags.item_id and tags.attr_id="+tagAttrId.toString()+") where i.item_id>? and i.item_id<?"
+    val sql = "select * from (SELECT i.item_id,i.client_item_id,unix_timestamp(first_op),CASE WHEN imi.value IS NOT NULL THEN cast(imi.value as char) WHEN imd.value IS NOT NULL THEN cast(imd.value as char) WHEN imb.value IS NOT NULL THEN cast(imb.value as char) WHEN imboo.value IS NOT NULL THEN cast(imboo.value as char) WHEN imt.value IS NOT NULL THEN imt.value WHEN imdt.value IS NOT NULL THEN cast(imdt.value as char) WHEN imv.value IS NOT NULL THEN imv.value WHEN e.value_name IS NOT NULL THEN e.value_name END" +  
+      " tags FROM  items i INNER JOIN item_attr a ON a.name in ('"+attr+"') and i.type=a.item_type LEFT JOIN item_map_int imi ON i.item_id=imi.item_id AND a.attr_id=imi.attr_id LEFT JOIN item_map_double imd ON i.item_id=imd.item_id AND a.attr_id=imd.attr_id LEFT JOIN item_map_enum ime ON i.item_id=ime.item_id AND a.attr_id=ime.attr_id LEFT JOIN item_map_bigint imb ON i.item_id=imb.item_id AND a.attr_id=imb.attr_id LEFT JOIN item_map_boolean imboo ON i.item_id=imboo.item_id AND a.attr_id=imboo.attr_id LEFT JOIN item_map_text imt ON i.item_id=imt.item_id AND a.attr_id=imt.attr_id LEFT JOIN item_map_datetime imdt ON i.item_id=imdt.item_id AND a.attr_id=imdt.attr_id LEFT JOIN item_map_varchar imv ON i.item_id=imv.item_id AND a.attr_id=imv.attr_id LEFT JOIN item_attr_enum e ON ime.attr_id =e.attr_id AND ime.value_id=e.value_id " +
+      " where i.item_id>? and i.item_id<? order by imv.pos) t where not t.tags is null"
     val rdd = new org.apache.spark.rdd.JdbcRDD(
     sc,
     () => {
@@ -87,6 +93,8 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
     )
     rdd
   }
+   
+  
 
 
     def run()
@@ -96,7 +104,7 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
       
       val rddActions = parseJsonActions(actionsGlob)
       
-      val rddItems = getItemTagsFromDb(config.jdbc, config.tagAttrId)
+      val rddItems = getItemTagsFromDb(config.jdbc, config.tagAttr)
       
       val rddCombined = rddActions.join(rddItems)
       
@@ -122,7 +130,7 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
             {
               if (!tagSet.contains(tag) && tag.trim().size > 0)
               {
-                line ++= " item_tag_"
+                line ++= " i_"
                 line ++= tag.trim().replaceAll(" ", "_")
                 tagSet += tag
               }
@@ -131,7 +139,7 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
             {
               if (!tagSet.contains(tag) && tag.trim().size > 0)
               {
-                line ++= " user_tag_"
+                line ++= " u_"
                 line ++= tag.trim()
               }
             }
@@ -148,75 +156,38 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
          } 
          buf 
       }.cache()
-      
-      // create a set of ids for all features
-      //val rddIds = rddFeatures.flatMap(_._2.split(" ")).distinct().zipWithUniqueId();
 
-      val features = rddFeatures.flatMap(_._2.split(" ")).cache()
+      //val features = rddFeatures.flatMap(_._2.split(" ")).cache()
       
-      val topUserfeatures = features.filter(_.startsWith("user_tag_")).map(f => (f,1)).reduceByKey{case (c1,c2) => (c1+c2)}.map{case (f,c) => (c,f)}
-        .sortByKey(false).take(config.numUserTagsToKeep)
       
-      val topItemfeatures = features.filter(_.startsWith("item_tag_")).map(f => (f,1)).reduceByKey{case (c1,c2) => (c1+c2)}.map{case (f,c) => (c,f)}
-        .sortByKey(false).take(config.numItemTagsToKeep)
+      val featuresIter = rddFeatures.map(_._2.split(" ").toSeq)
 
+      val hashingTF = new HashingTF()
+      val tf = hashingTF.transform(featuresIter)
+      val idf = new IDF(config.minTermDocFreq).fit(tf)
+      val tfidf = idf.transform(tf)
       
-      var id = 1
-      var idMap = collection.mutable.Map[String,Int]()
-      for((c,f) <- topUserfeatures)
-      {
-        idMap.put(f, id)
-        id += 1
-      }
-      for((c,f) <- topItemfeatures)
-      {
-        idMap.put(f, id)
-        id += 1
-      }
-
-      //save feature id mapping to file
-      val rddIds = sc.parallelize(idMap.toSeq,1)
-      val idsOutPath = config.outputPath + "/" + config.client + "/feature_mapping/"+config.startDay
-      rddIds.saveAsTextFile(idsOutPath)
-      
-      val broadcastMap = sc.broadcast(idMap)
-      val broadcastTopUserFeatures = sc.broadcast(topUserfeatures.map(v => v._2).toSet)
-      val broadcastTopItemFeatures = sc.broadcast(topItemfeatures.map(v => v._2).toSet)
+      val featuresWithTfidf = rddFeatures.zip(tfidf)
       
       // map strings or orderd list of ids using broadcast map
-      val rddFeatureIds = rddFeatures.map{v => 
-        val tagToId = broadcastMap.value
-        val validUserFeatures = broadcastTopUserFeatures.value
-        val validItemFeatures = broadcastTopItemFeatures.value
-        val features = v._2.split(" ")
-        var line = new StringBuilder(v._1.toString()+" ")
-        var ids = ListBuffer[Long]()
-        var itemFeaturesFound = false
-        for (feature <- features)
+      val rddFeatureIds = featuresWithTfidf.map{case ((user,features),tfidfVec) => 
+        
+        var line = new StringBuilder()
+        val hashingTF = new HashingTF()
+        var fset = Set[String]()
+        for (feature <- features.split(" "))
         {
-          if (validUserFeatures.contains(feature) || validItemFeatures.contains(feature))
-            ids.append(tagToId(feature))
-          if (!itemFeaturesFound && validItemFeatures.contains(feature))
+          if (!fset.contains(feature))
           {
-            itemFeaturesFound = true
+            val id = hashingTF.indexOf(feature)
+            val tfidf = tfidfVec(id)
+            val field = if (feature.startsWith("u_")) "1" else "2"
+            line ++= " "+field+":"+id.toString()+":"+tfidf
+            fset += feature
           }
         }
-        if (itemFeaturesFound)
-        {
-          ids = ids.sorted
-          for (id <- ids)
-          {
-            line ++= " "
-            line ++= id.toString()
-            line ++= ":1"
-          }
-          line.toString().trim()
+        line.toString().trim()
         }
-        else
-        {
-          ""
-        }
-        }.filter(_.length()>3)
        
       val outPath = config.outputPath + "/" + config.client + "/features/"+config.startDay
       rddFeatureIds.saveAsTextFile(outPath)
@@ -240,17 +211,15 @@ object CreateActionFeatures
     opt[String]('c', "client") required() valueName("<client>") action { (x, c) => c.copy(client = x) } text("client name (will be used as db and folder suffix)")    
     opt[String]('i', "input-path") required() valueName("path url") action { (x, c) => c.copy(inputPath = x) } text("path prefix for input")
     opt[String]('o', "output-path") required() valueName("path url") action { (x, c) => c.copy(outputPath = x) } text("path prefix for output")
-    opt[String]('a', "awskey") required() valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
-    opt[String]('s', "awssecret") required() valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
+    opt[String]('a', "awskey")  valueName("aws access key") action { (x, c) => c.copy(awsKey = x) } text("aws key")
+    opt[String]('s', "awssecret") valueName("aws secret") action { (x, c) => c.copy(awsSecret = x) } text("aws secret")
     opt[String]('j', "jdbc") required() valueName("<JDBC URL>") action { (x, c) => c.copy(jdbc = x) } text("jdbc url (to get dimension for all items)")    
-    opt[Int]('t', "tagAttrId") required() action { (x, c) =>c.copy(tagAttrId = x) } text("tag attribute id in database")    
+    opt[String]('t', "tagAttr") required() action { (x, c) =>c.copy(tagAttr = x) } text("tag attribute in database")    
     opt[Int]('r', "numdays") required() action { (x, c) =>c.copy(days = x) } text("number of days in past to get actions for")
     opt[Int]("start-day") required() action { (x, c) =>c.copy(startDay = x) } text("start day in unix time")
-    opt[Int]("numUserTagsToKeep") required() action { (x, c) =>c.copy(numUserTagsToKeep = x) } text("number of top user tags to keep")
-    opt[Int]("numItemTagsToKeep") required() action { (x, c) =>c.copy(numItemTagsToKeep = x) } text("number of top item tags to keep")
-    opt[Int]("minNumActionsPerUser") required() action { (x, c) =>c.copy(minNumActionsPerUser = x) } text("min number of actions a user must have")
-    opt[Int]("maxNumActionsPerUser") required() action { (x, c) =>c.copy(maxNumActionsPerUser = x) } text("max number of actions a user must have")
-    opt[Int]("actionNumToStart") required() action { (x, c) =>c.copy(actionNumToStart = x) } text("wait until this number of actions for a user before creating features")
+    opt[Int]("minNumActionsPerUser") action { (x, c) =>c.copy(minNumActionsPerUser = x) } text("min number of actions a user must have")
+    opt[Int]("maxNumActionsPerUser") action { (x, c) =>c.copy(maxNumActionsPerUser = x) } text("max number of actions a user must have")
+    opt[Int]("actionNumToStart") action { (x, c) =>c.copy(actionNumToStart = x) } text("wait until this number of actions for a user before creating features")
 
     }
     
@@ -266,9 +235,12 @@ object CreateActionFeatures
     try
     {
       sc.hadoopConfiguration.set("fs.s3.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
-      sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
-      sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
-
+      if (config.awsKey.nonEmpty && config.awsSecret.nonEmpty)
+      {
+        sc.hadoopConfiguration.set("fs.s3n.awsAccessKeyId", config.awsKey)
+        sc.hadoopConfiguration.set("fs.s3n.awsSecretAccessKey", config.awsSecret)
+      }
+      
       val cByd = new CreateActionFeatures(sc,config)
       cByd.run()
     }
