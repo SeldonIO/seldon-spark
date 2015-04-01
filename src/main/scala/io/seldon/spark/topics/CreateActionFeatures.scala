@@ -112,54 +112,48 @@ class CreateActionFeatures(private val sc : SparkContext,config : ActionConfig) 
       val maxNumActions = config.maxNumActionsPerUser
       val actionNumToStart = config.actionNumToStart
       // create feature for current item and the user history of items viewed
-      val rddFeatures = rddCombined.map{ case (item,((user,time),tags)) => (user,(item,time,tags))}.groupByKey().filter(_._2.size > minNumActions).filter(_._2.size < maxNumActions).flatMapValues{v =>
+      val rddFeatures = rddCombined.map{ case (item,((user,time),tags)) => (user,(item,time,tags))}.groupByKey().filter(_._2.size > minNumActions).filter(_._2.size < maxNumActions)
+          .flatMapValues{v =>
         val buf = new ListBuffer[String]()
-        val sorted = v.toArray.sortBy(_._1)
+        val sorted = v.toArray.sortBy(_._2) // _.2 is time
         var userHistory = Set[String]()
-        var items = Set[Int]()
         var c = 0
         for ((item,t,tags) <- sorted)
         {
-          if (!items.contains(item))
-          {
           var line = new StringBuilder()
           if (c > actionNumToStart)
           {
-            var tagSet = Set[String]()
-            for(tag <- tags.split(","))
+           for(tag <- tags.split(","))
+           {
+            // create a set of item tag features for each tag in current item
+            if (tag.trim().size > 0)
             {
-              if (!tagSet.contains(tag) && tag.trim().size > 0)
-              {
-                line ++= " i_"
-                line ++= tag.trim().replaceAll(" ", "_")
-                tagSet += tag
-              }
+              line ++= " i_"
+              line ++= tag.trim().replaceAll(" ", "_")
+             }
             }
+            // create a set if user tag features for each tag in user history
             for (tag <- userHistory)
             {
-              if (!tagSet.contains(tag) && tag.trim().size > 0)
-              {
-                line ++= " u_"
-                line ++= tag.trim()
-              }
+             if (tag.trim().size > 0)
+             {
+              line ++= " u_"
+              line ++= tag.trim()
+             }  
             }
             buf.append(line.toString().trim())
-          }
-          for (tag <- tags.split(","))
-          {
-            if (tag.trim().size > 0)
-              userHistory += tag.trim().replaceAll(" ", "_")
-          }
-          }
-          items += item
+           }
+           // add all tags from current item to user history
+           for (tag <- tags.split(","))
+           {
+              if (tag.trim().size > 0)
+                userHistory += tag.trim().replaceAll(" ", "_")
+            }
           c += 1
          } 
          buf 
       }.cache()
 
-      //val features = rddFeatures.flatMap(_._2.split(" ")).cache()
-      
-      
       val featuresIter = rddFeatures.map(_._2.split(" ").toSeq)
 
       val hashingTF = new HashingTF()
