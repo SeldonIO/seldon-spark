@@ -1,11 +1,10 @@
 Seldon Spark
 ============
-Spark jobs used within the Seldon predictive analytics platform.
 
-This is an early release and more documentation will be added soon. For the current Seldon docs see [http://docs.seldon.io](http://docs.seldon.io)
+This project has been re-located to the [seldon-server](https://github.com/SeldonIO/seldon-server) project.
+
+`seldon-server/offline-jobs/spark`
 
 ## License
 
-This project is licensed under the Apache 2 license. See LICENSE.txt. 
-
-
+This project is licensed under the Apache 2 license. See LICENSE.txt.
